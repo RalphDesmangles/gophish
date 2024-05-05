@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"time"
 	"net/mail"
 
 	"github.com/gophish/gomail"
@@ -9,7 +10,7 @@ import (
 	"github.com/gophish/gophish/mailer"
 )
 
-// PreviewPrefix is the standard prefix added to the rid parameter when sending
+// PreviewPrefix is the standard prefix added to the utm_source parameter when sending
 // test emails.
 const PreviewPrefix = "preview-"
 
@@ -79,15 +80,15 @@ func (s *EmailRequest) GetSmtpFrom() (string, error) {
 // PostEmailRequest stores a SendTestEmailRequest in the database.
 func PostEmailRequest(s *EmailRequest) error {
 	// Generate an ID to be used in the underlying Result object
-	rid, err := generateResultId()
+	utm_source, err := generateResultId()
 	if err != nil {
 		return err
 	}
-	s.RId = fmt.Sprintf("%s%s", PreviewPrefix, rid)
+	s.RId = fmt.Sprintf("%s%s", PreviewPrefix, utm_source)
 	return db.Save(&s).Error
 }
 
-// GetEmailRequestByResultId retrieves the EmailRequest by the underlying rid
+// GetEmailRequestByResultId retrieves the EmailRequest by the underlying utm_source
 // parameter.
 func GetEmailRequestByResultId(id string) (EmailRequest, error) {
 	s := EmailRequest{}
@@ -116,9 +117,31 @@ func (s *EmailRequest) Generate(msg *gomail.Message) error {
 	s.URL = url
 
 	// Add the transparency headers
-	//msg.SetHeader("X-Mailer", config.ServerName)
+	msg.SetHeader("X-Mailer", config.ServerName)
+	msg.SetHeader("X-MS-Has-Attach", "no")
+	msg.SetHeader("X-MS-Exchange-Organization-SCL", "1")
+	msg.SetHeader("X-MS-Exchange-Organization-MessageDirectionality", "Originating")
+	msg.SetHeader("X-MS-Exchange-Organization-AuthAs", "Internal")
+	msg.SetHeader("X-MS-Exchange-Organization-AuthMechanism", "04")
+	msg.SetHeader("X-MS-PublicTrafficType", "Email")
+	msg.SetHeader("X-MS-Exchange-Organization-ExpirationStartTimeReason", "OriginalSubmit")
+	msg.SetHeader("X-MS-Exchange-Organization-ExpirationInterval", "1:00:00:00.0000000")
+
+	utcNow := time.Now().UTC()
+
+	formattedTime := utcNow.Format(time.RFC3339)
+
+	msg.SetHeader("X-MS-Exchange-Organization-ExpirationStartTime", formattedTime)
+	msg.SetHeader("X-MS-Exchange-Organization-BypassClutter", "true")
+	msg.SetHeader("X-Microsoft-Antispam", "BCL:0")
+	msg.SetHeader("X-MS-Exchange-CrossTenant-OriginalArrivalTime", formattedTime)
+	msg.SetHeader("X-MS-Exchange-CrossTenant-FromEntityHeader", "Hosted")
+	// Set Tenant ID
+	// msg.SetHeader("X-MS-Exchange-CrossTenant-Id", "")
+	msg.SetHeader("X-MS-Exchange-CrossTenant-AuthAs", "Internal")
+	msg.SetHeader("Content-Transfer-Encoding", "binary")
 	if conf.ContactAddress != "" {
-		msg.SetHeader("X-Gophish-Contact", conf.ContactAddress)
+		msg.SetHeader("X-Contact", conf.ContactAddress)
 	}
 
 	// Parse the customHeader templates

@@ -1,10 +1,12 @@
 package controllers
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
 	"net"
 	"net/http"
 	"strings"
@@ -81,6 +83,46 @@ func WithContactAddress(addr string) PhishingServerOption {
 	}
 }
 
+// Overwrite net.https Error with a custom one to set our own headers
+// Go's internal Error func returns text/plain so browser's won't render the html
+func customError(w http.ResponseWriter, error string, code int) {
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+	w.Header().Set("Access-Control-Allow-Origin", "https://www.amazon.com")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Content-Security-Policy", "default-src https:")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Expires", "0")
+	w.Header().Set("Feature-Policy", "geolocation 'none'; midi 'none'; sync-xhr 'none'; microphone 'none'; camera 'none'; magnetometer 'none'; gyroscope 'none'; speaker 'none'; vibrate 'none'; fullscreen 'self'; payment 'none'")
+	w.Header().Set("Permissions-Policy", "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	w.Header().Set("Retry-After", "120")
+	w.Header().Set("Server", "AmazonS3")
+	w.Header().Set("X-Amz-Version-Id", "null")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("X-XSS-Protection", "1; mode=block")
+	w.WriteHeader(code)
+	fmt.Fprintln(w, error)
+}
+// Overwrite go's internal not found to allow templating the not found page
+// The templating string is currently not passed in, therefore there is no templating yet
+// If I need it in the future, it's a 5 minute change...
+func customNotFound(w http.ResponseWriter, r *http.Request) {
+	tmpl404, err := template.ParseFiles("templates/404.html")
+	if err != nil {
+		log.Fatal(err)
+	}
+	var b bytes.Buffer
+	err = tmpl404.Execute(&b, "")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	customError(w, b.String(), http.StatusNotFound)
+}
+
 // Start launches the phishing server, listening on the configured address.
 func (ps *PhishingServer) Start() {
 	if ps.config.UseTLS {
@@ -138,7 +180,7 @@ func (ps *PhishingServer) TrackHandler(w http.ResponseWriter, r *http.Request) {
 		if err != ErrInvalidRequest && err != ErrCampaignComplete {
 			log.Error(err)
 		}
-		http.NotFound(w, r)
+		customNotFound(w, r)
 		return
 	}
 	// Check for a preview
@@ -147,11 +189,11 @@ func (ps *PhishingServer) TrackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rs := ctx.Get(r, "result").(models.Result)
-	rid := ctx.Get(r, "rid").(string)
+	utm_source := ctx.Get(r, "utm_source").(string)
 	d := ctx.Get(r, "details").(models.EventDetails)
 
 	// Check for a transparency request
-	if strings.HasSuffix(rid, TransparencySuffix) {
+	if strings.HasSuffix(utm_source, TransparencySuffix) {
 		ps.TransparencyHandler(w, r)
 		return
 	}
@@ -172,7 +214,7 @@ func (ps *PhishingServer) ReportHandler(w http.ResponseWriter, r *http.Request) 
 		if err != ErrInvalidRequest && err != ErrCampaignComplete {
 			log.Error(err)
 		}
-		http.NotFound(w, r)
+		customNotFound(w, r)
 		return
 	}
 	// Check for a preview
@@ -181,11 +223,11 @@ func (ps *PhishingServer) ReportHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	rs := ctx.Get(r, "result").(models.Result)
-	rid := ctx.Get(r, "rid").(string)
+	utm_source := ctx.Get(r, "utm_source").(string)
 	d := ctx.Get(r, "details").(models.EventDetails)
 
 	// Check for a transparency request
-	if strings.HasSuffix(rid, TransparencySuffix) {
+	if strings.HasSuffix(utm_source, TransparencySuffix) {
 		ps.TransparencyHandler(w, r)
 		return
 	}
@@ -206,7 +248,7 @@ func (ps *PhishingServer) PhishHandler(w http.ResponseWriter, r *http.Request) {
 		if err != ErrInvalidRequest && err != ErrCampaignComplete {
 			log.Error(err)
 		}
-		http.NotFound(w, r)
+		customNotFound(w, r)
 		return
 	}
 	w.Header().Set("X-Server", config.ServerName) // Useful for checking if this is a GoPhish server (e.g. for campaign reporting plugins)
@@ -216,25 +258,25 @@ func (ps *PhishingServer) PhishHandler(w http.ResponseWriter, r *http.Request) {
 		ptx, err = models.NewPhishingTemplateContext(&preview, preview.BaseRecipient, preview.RId)
 		if err != nil {
 			log.Error(err)
-			http.NotFound(w, r)
+			customNotFound(w, r)
 			return
 		}
 		p, err := models.GetPage(preview.PageId, preview.UserId)
 		if err != nil {
 			log.Error(err)
-			http.NotFound(w, r)
+			customNotFound(w, r)
 			return
 		}
 		renderPhishResponse(w, r, ptx, p)
 		return
 	}
 	rs := ctx.Get(r, "result").(models.Result)
-	rid := ctx.Get(r, "rid").(string)
+	utm_source := ctx.Get(r, "utm_source").(string)
 	c := ctx.Get(r, "campaign").(models.Campaign)
 	d := ctx.Get(r, "details").(models.EventDetails)
 
 	// Check for a transparency request
-	if strings.HasSuffix(rid, TransparencySuffix) {
+	if strings.HasSuffix(utm_source, TransparencySuffix) {
 		ps.TransparencyHandler(w, r)
 		return
 	}
@@ -242,7 +284,7 @@ func (ps *PhishingServer) PhishHandler(w http.ResponseWriter, r *http.Request) {
 	p, err := models.GetPage(c.PageId, c.UserId)
 	if err != nil {
 		log.Error(err)
-		http.NotFound(w, r)
+		customNotFound(w, r)
 		return
 	}
 	switch {
@@ -260,7 +302,7 @@ func (ps *PhishingServer) PhishHandler(w http.ResponseWriter, r *http.Request) {
 	ptx, err = models.NewPhishingTemplateContext(&c, rs.BaseRecipient, rs.RId)
 	if err != nil {
 		log.Error(err)
-		http.NotFound(w, r)
+		customNotFound(w, r)
 	}
 	renderPhishResponse(w, r, ptx, p)
 }
@@ -276,7 +318,7 @@ func renderPhishResponse(w http.ResponseWriter, r *http.Request, ptx models.Phis
 			redirectURL, err := models.ExecuteTemplate(p.RedirectURL, ptx)
 			if err != nil {
 				log.Error(err)
-				http.NotFound(w, r)
+				customNotFound(w, r)
 				return
 			}
 			http.Redirect(w, r, redirectURL, http.StatusFound)
@@ -287,7 +329,7 @@ func renderPhishResponse(w http.ResponseWriter, r *http.Request, ptx models.Phis
 	html, err := models.ExecuteTemplate(p.HTML, ptx)
 	if err != nil {
 		log.Error(err)
-		http.NotFound(w, r)
+		customNotFound(w, r)
 		return
 	}
 	w.Write([]byte(html))
@@ -318,24 +360,24 @@ func setupContext(r *http.Request) (*http.Request, error) {
 		log.Error(err)
 		return r, err
 	}
-	rid := r.Form.Get(models.RecipientParameter)
-	if rid == "" {
+	utm_source := r.Form.Get(models.RecipientParameter)
+	if utm_source == "" {
 		return r, ErrInvalidRequest
 	}
 	// Since we want to support the common case of adding a "+" to indicate a
 	// transparency request, we need to take care to handle the case where the
 	// request ends with a space, since a "+" is technically reserved for use
 	// as a URL encoding of a space.
-	if strings.HasSuffix(rid, " ") {
+	if strings.HasSuffix(utm_source, " ") {
 		// We'll trim off the space
-		rid = strings.TrimRight(rid, " ")
+		utm_source = strings.TrimRight(utm_source, " ")
 		// Then we'll add the transparency suffix
-		rid = fmt.Sprintf("%s%s", rid, TransparencySuffix)
+		utm_source = fmt.Sprintf("%s%s", utm_source, TransparencySuffix)
 	}
 	// Finally, if this is a transparency request, we'll need to verify that
-	// a valid rid has been provided, so we'll look up the result with a
+	// a valid utm_source has been provided, so we'll look up the result with a
 	// trimmed parameter.
-	id := strings.TrimSuffix(rid, TransparencySuffix)
+	id := strings.TrimSuffix(utm_source, TransparencySuffix)
 	// Check to see if this is a preview or a real result
 	if strings.HasPrefix(id, models.PreviewPrefix) {
 		rs, err := models.GetEmailRequestByResultId(id)
@@ -374,7 +416,7 @@ func setupContext(r *http.Request) (*http.Request, error) {
 	d.Browser["address"] = ip
 	d.Browser["user-agent"] = r.Header.Get("User-Agent")
 
-	r = ctx.Set(r, "rid", rid)
+	r = ctx.Set(r, "utm_source", utm_source)
 	r = ctx.Set(r, "result", rs)
 	r = ctx.Set(r, "campaign", c)
 	r = ctx.Set(r, "details", d)

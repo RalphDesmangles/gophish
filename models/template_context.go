@@ -30,7 +30,7 @@ type PhishingTemplateContext struct {
 
 // NewPhishingTemplateContext returns a populated PhishingTemplateContext,
 // parsing the correct fields from the provided TemplateContext and recipient.
-func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string) (PhishingTemplateContext, error) {
+func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, utm_source string) (PhishingTemplateContext, error) {
 	f, err := mail.ParseAddress(ctx.getFromAddress())
 	if err != nil {
 		return PhishingTemplateContext{}, err
@@ -60,7 +60,7 @@ func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string
 	q.Set("fname", r.FirstName)
 	q.Set("lname", r.LastName)
 	q.Set("email", r.Email)
-	q.Set("rid", rid)
+	q.Set("utm_source", utm_source)
 
 	phishUrlString := evilginx.CreatePhishUrl(phishURL.String(), &q)
 
@@ -68,7 +68,7 @@ func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string
 	q = trackingURL.Query()
 	trackingURL.RawQuery = ""
 
-	q.Set("rid", rid)
+	q.Set("utm_source", utm_source)
 	q.Set("o", "track")
 
 	trackerUrlString := evilginx.CreatePhishUrl(trackingURL.String(), &q)
@@ -80,7 +80,7 @@ func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string
 		TrackingURL:   trackerUrlString,
 		Tracker:       "<img alt='' style='display: none' src='" + trackerUrlString + "'/>",
 		From:          fn,
-		RId:           rid,
+		RId:           utm_source,
 	}, nil
 }
 

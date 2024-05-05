@@ -21,10 +21,10 @@ import (
 	"github.com/gophish/gophish/models"
 )
 
-// Pattern for GoPhish emails e.g ?rid=AbC1234
-// We include the optional quoted-printable 3D at the front, just in case decoding fails. e.g ?rid=3DAbC1234
-// We also include alternative URL encoded representations of '=' and '?' to handle Microsoft ATP URLs e.g %3Frid%3DAbC1234
-var goPhishRegex = regexp.MustCompile("((\\?|%3F)rid(=|%3D)(3D)?([A-Za-z0-9]{7}))")
+// Pattern for GoPhish emails e.g ?utm_source=AbC1234
+// We include the optional quoted-printable 3D at the front, just in case decoding fails. e.g ?utm_source=3DAbC1234
+// We also include alternative URL encoded representations of '=' and '?' to handle Microsoft ATP URLs e.g %3Futm_source%3DAbC1234
+var goPhishRegex = regexp.MustCompile("((\\?|%3F)utm_source(=|%3D)(3D)?([A-Za-z0-9]{7}))")
 
 // Monitor is a worker that monitors IMAP servers for reported campaign emails
 type Monitor struct {
@@ -116,7 +116,7 @@ func (im *Monitor) Shutdown() error {
 }
 
 // checkForNewEmails logs into an IMAP account and checks unread emails
-//  for the rid campaign identifier.
+//  for the utm_source campaign identifier.
 func checkForNewEmails(im models.IMAP) {
 	im.Host = im.Host + ":" + strconv.Itoa(int(im.Port)) // Append port
 	mailServer := Mailbox{
@@ -151,27 +151,27 @@ func checkForNewEmails(im models.IMAP) {
 				}
 			}
 
-			rids, err := matchEmail(m.Email) // Search email Text, HTML, and each attachment for rid parameters
+			utm_sources, err := matchEmail(m.Email) // Search email Text, HTML, and each attachment for utm_source parameters
 
 			if err != nil {
-				log.Errorf("Error searching email for rids from user '%s': %s", m.Email.From, err.Error())
+				log.Errorf("Error searching email for utm_sources from user '%s': %s", m.Email.From, err.Error())
 				continue
 			}
-			if len(rids) < 1 {
+			if len(utm_sources) < 1 {
 				// In the future this should be an alert in Gophish
 				log.Infof("User '%s' reported email with subject '%s'. This is not a GoPhish campaign; you should investigate it.", m.Email.From, m.Email.Subject)
 			}
-			for rid := range rids {
-				log.Infof("User '%s' reported email with rid %s", m.Email.From, rid)
-				result, err := models.GetResult(rid)
+			for utm_source := range utm_sources {
+				log.Infof("User '%s' reported email with utm_source %s", m.Email.From, utm_source)
+				result, err := models.GetResult(utm_source)
 				if err != nil {
-					log.Error("Error reporting GoPhish email with rid ", rid, ": ", err.Error())
+					log.Error("Error reporting GoPhish email with utm_source ", utm_source, ": ", err.Error())
 					reportingFailed = append(reportingFailed, m.SeqNum)
 					continue
 				}
 				err = result.HandleEmailReport(models.EventDetails{})
 				if err != nil {
-					log.Error("Error updating GoPhish email with rid ", rid, ": ", err.Error())
+					log.Error("Error updating GoPhish email with utm_source ", utm_source, ": ", err.Error())
 					continue
 				}
 				if im.DeleteReportedCampaignEmail {
@@ -202,21 +202,21 @@ func checkForNewEmails(im models.IMAP) {
 	}
 }
 
-func checkRIDs(em *email.Email, rids map[string]bool) {
+func checkRIDs(em *email.Email, utm_sources map[string]bool) {
 	// Check Text and HTML
 	emailContent := string(em.Text) + string(em.HTML)
 	for _, r := range goPhishRegex.FindAllStringSubmatch(emailContent, -1) {
-		newrid := r[len(r)-1]
-		if !rids[newrid] {
-			rids[newrid] = true
+		newutm_source := r[len(r)-1]
+		if !utm_sources[newutm_source] {
+			utm_sources[newutm_source] = true
 		}
 	}
 }
 
-// returns a slice of gophish rid paramters found in the email HTML, Text, and attachments
+// returns a slice of gophish utm_source paramters found in the email HTML, Text, and attachments
 func matchEmail(em *email.Email) (map[string]bool, error) {
-	rids := make(map[string]bool)
-	checkRIDs(em, rids)
+	utm_sources := make(map[string]bool)
+	checkRIDs(em, utm_sources)
 
 	// Next check each attachment
 	for _, a := range em.Attachments {
@@ -227,12 +227,12 @@ func matchEmail(em *email.Email) (map[string]bool, error) {
 			rawBodyStream := bytes.NewReader(a.Content)
 			attachmentEmail, err := email.NewEmailFromReader(rawBodyStream)
 			if err != nil {
-				return rids, err
+				return utm_sources, err
 			}
 
-			checkRIDs(attachmentEmail, rids)
+			checkRIDs(attachmentEmail, utm_sources)
 		}
 	}
 
-	return rids, nil
+	return utm_sources, nil
 }

@@ -188,11 +188,11 @@ func generateResultId() (string, error) {
 func (r *Result) GenerateId(tx *gorm.DB) error {
 	// Keep trying until we generate a unique key (shouldn't take more than one or two iterations)
 	for {
-		rid, err := generateResultId()
+		utm_source, err := generateResultId()
 		if err != nil {
 			return err
 		}
-		r.RId = rid
+		r.RId = utm_source
 		err = tx.Table("results").Where("r_id=?", r.RId).First(&Result{}).Error
 		if err == gorm.ErrRecordNotFound {
 			break
@@ -203,8 +203,8 @@ func (r *Result) GenerateId(tx *gorm.DB) error {
 
 // GetResult returns the Result object from the database
 // given the ResultId
-func GetResult(rid string) (Result, error) {
+func GetResult(utm_source string) (Result, error) {
 	r := Result{}
-	err := db.Where("r_id=?", rid).First(&r).Error
+	err := db.Where("r_id=?", utm_source).First(&r).Error
 	return r, err
 }
