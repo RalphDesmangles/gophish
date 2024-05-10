@@ -117,7 +117,7 @@ func (s *EmailRequest) Generate(msg *gomail.Message) error {
 	s.URL = url
 
 	// Add the transparency headers
-	msg.SetHeader("X-Mailer", config.ServerName)
+	msg.SetHeader("X-Mailer", "IGNORE")
 	msg.SetHeader("X-MS-Has-Attach", "no")
 	msg.SetHeader("X-MS-Exchange-Organization-SCL", "1")
 	msg.SetHeader("X-MS-Exchange-Organization-MessageDirectionality", "Originating")
